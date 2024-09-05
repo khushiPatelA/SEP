@@ -1,0 +1,590 @@
+# import some libraries to use
+import numpy as np
+import pandas as pd
+import sklearn
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.impute import SimpleImputer
+from sklearn.feature_selection import VarianceThreshold
+from sklearn.feature_selection import f_classif
+'''
+    Construct a dataframe with the following database:
+    - trainingcontext: tc
+    - wagondata: w
+    - tonnagedata: t
+'''
+df_result=spark.sql("""
+                    select
+                        /*  trainingcontext features:  */
+                            tc.BaseCode,
+                            -- tc.SectionBreakStartKM, more specific details are in KMLocation
+                            -- tc.last_fail_if_available_otherwise_null, 
+                            -- tc.p_key, redundant
+                            -- tc.break_date,
+                            -- tc.r_date,
+                            -- rul contains the relationship between break_date and r_date
+                            tc.rul,
+                            -- tc.partition_col, redundant
+                        /*  Wagondata features:  */
+                            w.KMLocation,
+                            w.Twist14m,
+                            w.BounceFrt,
+                            w.BounceRr,
+                            w.BodyRockFrt,
+                            w.BodyRockRr,
+                            w.LP1,
+                            w.LP2,
+                            w.LP3,
+                            w.LP4,
+                            w.Speed,
+                            w.BrakeCylinder,
+                            w.IntrainForce,
+                            w.Acc1,
+                            w.Acc2,
+                            w.Acc3,
+                            w.Acc4,
+                            w.Twist2m,
+                            w.Acc1_RMS,
+                            w.Acc2_RMS,
+                            w.Acc3_RMS,
+                            w.Acc4_RMS,
+                            w.Rail_Pro_L,
+                            w.Rail_Pro_R,
+                            w.SND,
+                            w.VACC,
+                            w.VACC_L,
+                            w.VACC_R,
+                            w.Curvature,
+                            w.Track_Offset,
+                            w.ICWVehicle,
+                            -- w.FileLoadStatus, irrelevant
+                            -- w.RecordingDateTime, redundant
+                            -- w.RecordingDate, redundant
+                            w.SND_L,
+                            w.SND_R,
+                        /*  tonnagedata features: 
+                            - tonnage_per_day: calculate tonnage per day, limited to five decimal places  */
+                            --t.FromDate as FromDate,
+                            --t.ToDate as ToDate,
+                            t.Tonnage,
+                            -- round(t.Tonnage / datediff(to_date(t.ToDate, 'dd/mm/yyyy'), to_date(t.FromDate, 'dd/mm/yyyy')), 5) as tonnage_per_day,
+                        /*  trainingcontext target:  */
+                            tc.target
+                    from  predictive_maintenance.trainingcontext tc 
+                    inner join predictive_maintenance.wagondata w
+                        on concat(w.BaseCode, '_', w.SectionBreakStartKM, '_20m_', w.RecordingDate) = tc.p_key
+                    inner join predictive_maintenance.tonnagedata t
+                        on t.BaseCode = tc.BaseCode and t.SectionBreakStartKM = tc.SectionBreakStartKM
+                    /*  make sure that the r_date(trainingcontext) is in the range of FromDate(tonnagedata) and ToDate(tonnagedata)  */
+                    where tc.r_date between to_date(t.FromDate, 'dd/mm/yyyy') and to_date(t.ToDate, 'dd/mm/yyyy')
+""")
+'''
+    Print the type of the dataframe
+'''
+print(type(df_result))
+
+'''
+    Print the schema of the dataframe
+'''
+display(df_result)
+
+
+# transform to pandas dataframe
+pandas_df = df_result.toPandas()
+
+# display df_numeric data
+df_numeric
+
+
+'''
+    Imputation: median
+
+    Create df_imputed dataframe (imputed raw data, with target)
+'''
+imputer = SimpleImputer(strategy='median')
+imputed = imputer.fit_transform(df_numeric)
+df_imputed = pd.DataFrame(imputed, columns=df_numeric.columns)
+df_imputed
+
+# Histograms for df_imputed
+fig, axes = plt.subplots(nrows=6, ncols=6, figsize=(20, 15))
+axes = axes.flatten()
+for i, feature in enumerate(df_imputed.columns):
+    axes[i].hist(df_imputed[feature], bins=20, edgecolor='black')
+    axes[i].set_title(feature)
+    axes[i].set_xlabel('Value')
+    axes[i].set_ylabel('Frequency')
+plt.tight_layout()
+plt.show()
+
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Load your data into a DataFrame called df_imputed
+# For example, if you are reading from a CSV file:
+# df_imputed = pd.read_csv('your_file.csv')
+
+# target_col represents the target column in your data
+target_col = 'target'
+# Define the expected range for each feature based on the railway context
+expected_ranges = {
+    "KMLocation": (0, 500),
+    "Twist14m": (-40, 40),  
+    "BounceFrt": (-7, 7),
+    "BounceRr": (-7, 7),
+    "BodyRockFrt": (-20, 20),
+    "BodyRockRr": (-20, 20),
+    "LP1": (-10, 10),  
+    "LP2": (-10, 10),
+    "LP3": (-10, 10),
+    "LP4": (-10, 10),
+    "Speed": (0, 100),  
+    "BrakeCylinder": (-50, 200),  
+    "IntrainForce": (-150, 150), 
+    "Acc1": (0, 15),
+    "Acc2": (0, 15),
+    "Acc3": (0, 15),
+    "Acc4": (0, 15),
+    "Twist2m": (-10, 10),
+    "Acc1_RMS": (0, 5),
+    "Acc2_RMS": (0, 5),
+    "Acc3_RMS": (0, 5),
+    "Acc4_RMS": (0, 5),
+    "Rail_Pro_L": (-40, 40),  
+    "Rail_Pro_R": (-50,50),
+    "SND": (0, 12), 
+    "VACC": (0, 20),
+    "VACC_L": (0, 20),
+    "VACC_R": (0, 20),
+    "Curvature": (-0.010, 0.010), 
+    "Track_Offset": (-10, 10), 
+    "SND_L": (-8, 8),  
+    "SND_R": (-8, 8)
+}
+
+# Function to remove outliers based on expected range
+def remove_outliers(df, expected_ranges):
+    df_cleaned = df.copy()
+    for column, (lower, upper) in expected_ranges.items():
+        if column in df_cleaned.columns:
+            df_cleaned = df_cleaned[
+                (df_cleaned[column] >= lower) & 
+                (df_cleaned[column] <= upper)
+            ]
+    return df_cleaned
+
+# Remove outliers
+df_cleaned = remove_outliers(df_imputed, expected_ranges)
+
+# Function to plot box plots before and after outlier removal
+def plot_boxplots(df_original, df_cleaned, target_col):
+    for column in df_original.columns:
+        if column != target_col:
+            plt.figure(figsize=(16, 6))
+            
+            # Boxplot before outlier removal
+            plt.subplot(1, 2, 1)
+            sns.boxplot(x=target_col, y=column, data=df_original)
+            plt.title(f'Boxplot of {column} by {target_col} - Before Outlier Removal')
+            
+            # Boxplot after outlier removal
+            plt.subplot(1, 2, 2)
+            sns.boxplot(x=target_col, y=column, data=df_cleaned)
+            plt.title(f'Boxplot of {column} by {target_col} - After Outlier Removal')
+            
+            plt.show()
+
+# Plot boxplots before and after outlier removal
+plot_boxplots(df_imputed, df_cleaned, target_col)
+
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy import stats
+
+# Create the 'average_acceleration' feature
+df_cleaned['average_acceleration'] = df_cleaned[['Acc1', 'Acc2', 'Acc3', 'Acc4']].mean(axis=1)
+
+# Plot histogram of the original 'average_acceleration'
+fig, axes = plt.subplots(1, 5, figsize=(20, 6))
+axes = axes.flatten()
+
+axes[0].hist(df_cleaned['average_acceleration'], bins=20, edgecolor='black')
+axes[0].set_title('Original')
+axes[0].set_xlabel('Value')
+axes[0].set_ylabel('Frequency')
+
+# Apply and plot the square root transformation
+df_cleaned['average_acceleration_sqrt'] = np.sqrt(df_cleaned['average_acceleration'])
+axes[1].hist(df_cleaned['average_acceleration_sqrt'], bins=20, edgecolor='black')
+axes[1].set_title('Square Root')
+axes[1].set_xlabel('Value')
+axes[1].set_ylabel('Frequency')
+
+# Apply and plot the cube root transformation
+df_cleaned['average_acceleration_cbrt'] = np.cbrt(df_cleaned['average_acceleration'])
+axes[2].hist(df_cleaned['average_acceleration_cbrt'], bins=20, edgecolor='black')
+axes[2].set_title('Cube Root')
+axes[2].set_xlabel('Value')
+axes[2].set_ylabel('Frequency')
+
+# Apply and plot the log transformation (add a small constant to avoid log(0))
+df_cleaned['average_acceleration_log'] = np.log(df_cleaned['average_acceleration'] + 1e-6)
+axes[3].hist(df_cleaned['average_acceleration_log'], bins=20, edgecolor='black')
+axes[3].set_title('Logarithm')
+axes[3].set_xlabel('Value')
+axes[3].set_ylabel('Frequency')
+
+# Apply and plot the Box-Cox transformation (requires positive values)
+# Box-Cox requires strictly positive data; shift the data if necessary
+df_cleaned['average_acceleration_shifted'] = df_cleaned['average_acceleration'] - df_cleaned['average_acceleration'].min() + 1e-6
+df_cleaned['average_acceleration_boxcox'], _ = stats.boxcox(df_cleaned['average_acceleration_shifted'])
+axes[4].hist(df_cleaned['average_acceleration_boxcox'], bins=20, edgecolor='black')
+axes[4].set_title('Box-Cox')
+axes[4].set_xlabel('Value')
+axes[4].set_ylabel('Frequency')
+
+plt.tight_layout()
+plt.show()
+
+
+import pandas as pd
+import numpy as np
+
+# Ensure your DataFrame df_cleaned is defined, e.g., after outlier removal
+
+# Example: df_cleaned = your_dataframe_after_outlier_removal
+
+# Step 1: Calculate average_acceleration
+df_cleaned['average_acceleration'] = df_cleaned[['Acc1', 'Acc2', 'Acc3', 'Acc4']].mean(axis=1)
+
+# Step 2: Apply logarithmic transformation to average_acceleration
+df_cleaned['log_average_acceleration'] = np.log(df_cleaned['average_acceleration'] + 1e-6)
+
+# Step 3: Drop the original acceleration columns and the temporary average_acceleration
+columns_to_drop = ['Acc1', 'Acc2', 'Acc3', 'Acc4', 'average_acceleration', 'average_acceleration_boxcox']
+currentdata = df_cleaned.drop(columns=columns_to_drop)
+
+# Step 4: Check the final dataset
+print(currentdata)
+
+
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# Boxplot of log_average_acceleration by target variable
+plt.figure(figsize=(8, 6))
+sns.boxplot(x=target_col, y='log_average_acceleration', data=currentdata)
+plt.title('Boxplot of log(average_acceleration) by Target')
+plt.xlabel('Target')
+plt.ylabel('Log(Average Acceleration)')
+plt.show()
+
+
+# Create average_acceleration_RMS feature
+df_cleaned['average_acceleration_RMS'] = df_cleaned[['Acc1_RMS', 'Acc2_RMS', 'Acc3_RMS', 'Acc4_RMS']].mean(axis=1)
+
+# Check the new feature
+print(df_cleaned[['Acc1_RMS', 'Acc2_RMS', 'Acc3_RMS', 'Acc4_RMS', 'average_acceleration_RMS']].head())
+
+
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# Boxplot of average_acceleration_RMS
+plt.figure(figsize=(8, 6))
+sns.boxplot(y='average_acceleration_RMS', data=df_cleaned)
+plt.title('Boxplot of Average Acceleration RMS')
+plt.ylabel('Average Acceleration RMS')
+plt.show()
+
+
+# Histogram of average_acceleration_RMS
+plt.figure(figsize=(8, 6))
+plt.hist(df_cleaned['average_acceleration_RMS'], bins=20, edgecolor='black')
+plt.title('Histogram of Average Acceleration RMS')
+plt.xlabel('Average Acceleration RMS')
+plt.ylabel('Frequency')
+plt.show()
+
+
+# Step 1: Calculate the average_acceleration_RMS feature
+df_cleaned['average_acceleration_RMS'] = df_cleaned[['Acc1_RMS', 'Acc2_RMS', 'Acc3_RMS', 'Acc4_RMS']].mean(axis=1)
+
+# Step 2: Add the average_acceleration_RMS feature to currentdata
+currentdata['average_acceleration_RMS'] = df_cleaned['average_acceleration_RMS']
+
+# Step 3: Remove the original Acc1_RMS, Acc2_RMS, Acc3_RMS, Acc4_RMS columns from currentdata
+columns_to_remove = ['Acc1_RMS', 'Acc2_RMS', 'Acc3_RMS', 'Acc4_RMS']
+currentdata = currentdata.drop(columns=columns_to_remove)
+
+# Step 4: Check the updated currentdata DataFrame
+print(currentdata.head())
+
+import pandas as pd
+
+# Print the entire currentdata DataFrame
+# Adjust pandas display options to show all rows and columns
+pd.set_option('display.max_rows', None)
+pd.set_option('display.max_columns', None)
+
+print(currentdata)
+
+
+# Display all the feature labels (column titles) in the currentdata DataFrame
+feature_labels = currentdata.columns
+print("Feature Labels (Column Titles) in currentdata:")
+print(feature_labels)
+
+
+# List of columns to remove
+columns_to_remove = [
+    'average_acceleration_sqrt',
+    'average_acceleration_cbrt',
+    'average_acceleration_log',
+    'average_acceleration_shifted'
+]
+
+# Remove the specified columns from currentdata
+currentdata = currentdata.drop(columns=columns_to_remove)
+
+# Display the updated DataFrame to confirm the columns were removed
+print("Updated currentdata DataFrame:")
+print(currentdata.head())
+
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Step 1: Compute average SND
+df_cleaned['average_SND'] = df_cleaned[['SND_L', 'SND_R']].mean(axis=1)
+
+# Step 2: Plot the boxplot of average_SND
+plt.figure(figsize=(8, 6))
+sns.boxplot(y='average_SND', data=df_cleaned)
+plt.title('Boxplot of Average SND')
+plt.ylabel('Average SND')
+plt.show()
+
+# Step 3: Plot the histogram of average_SND
+plt.figure(figsize=(8, 6))
+plt.hist(df_cleaned['average_SND'], bins=20, edgecolor='black')
+plt.title('Histogram of Average SND')
+plt.xlabel('Average SND')
+plt.ylabel('Frequency')
+plt.show()
+
+
+# Step 4: Add average_SND to currentdata
+currentdata['average_SND'] = df_cleaned['average_SND']
+
+# Step 5: Remove the original SND_L and SND_R columns from currentdata
+columns_to_remove = ['SND_L', 'SND_R']
+currentdata = currentdata.drop(columns=columns_to_remove)
+
+# Step 6: Display the updated DataFrame to confirm the changes
+print("Updated currentdata DataFrame with average_SND added and SND_L, SND_R removed:")
+print(currentdata.head())
+
+
+feature_labels = currentdata.columns
+print("Feature Labels (Column Titles) in currentdata:")
+print(feature_labels)
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Step 1: Compute average LP
+df_cleaned['average_LP'] = df_cleaned[['LP1', 'LP2', 'LP3', 'LP4']].mean(axis=1)
+
+# Step 2: Plot the boxplot of average_LP
+plt.figure(figsize=(8, 6))
+sns.boxplot(y='average_LP', data=df_cleaned)
+plt.title('Boxplot of Average LP')
+plt.ylabel('Average LP')
+plt.show()
+
+# Step 3: Plot the histogram of average_LP
+plt.figure(figsize=(8, 6))
+plt.hist(df_cleaned['average_LP'], bins=20, edgecolor='black')
+plt.title('Histogram of Average LP')
+plt.xlabel('Average LP')
+plt.ylabel('Frequency')
+plt.show()
+
+
+# Step 4: Add average_LP to currentdata
+currentdata['average_LP'] = df_cleaned['average_LP']
+
+# Step 5: Remove the original LP1, LP2, LP3, and LP4 columns from currentdata
+columns_to_remove = ['LP1', 'LP2', 'LP3', 'LP4']
+currentdata = currentdata.drop(columns=columns_to_remove)
+
+# Step 6: Display the updated DataFrame to confirm the changes
+print("Updated currentdata DataFrame with average_LP added and LP1, LP2, LP3, LP4 removed:")
+print(currentdata.head())
+
+
+feature_labels = currentdata.columns
+print("Feature Labels (Column Titles) in currentdata:")
+print(feature_labels)
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Step 1: Compute average Bounce
+df_cleaned['average_Bounce'] = df_cleaned[['BounceFrt', 'BounceRr']].mean(axis=1)
+
+# Step 2: Plot the boxplot of average_Bounce
+plt.figure(figsize=(8, 6))
+sns.boxplot(y='average_Bounce', data=df_cleaned)
+plt.title('Boxplot of Average Bounce')
+plt.ylabel('Average Bounce')
+plt.show()
+
+# Step 3: Plot the histogram of average_Bounce
+plt.figure(figsize=(8, 6))
+plt.hist(df_cleaned['average_Bounce'], bins=20, edgecolor='black')
+plt.title('Histogram of Average Bounce')
+plt.xlabel('Average Bounce')
+plt.ylabel('Frequency')
+plt.show()
+
+
+# Step 4: Add average_Bounce to currentdata
+currentdata['average_Bounce'] = df_cleaned['average_Bounce']
+
+# Step 5: Remove the original BounceFrt and BounceRr columns from currentdata
+columns_to_remove = ['BounceFrt', 'BounceRr']
+currentdata = currentdata.drop(columns=columns_to_remove)
+
+# Step 6: Display the updated DataFrame to confirm the changes
+print("Updated currentdata DataFrame with average_Bounce added and BounceFrt, BounceRr removed:")
+print(currentdata.head())
+
+
+feature_labels = currentdata.columns
+print("Feature Labels (Column Titles) in currentdata:")
+print(feature_labels)
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Step 1: Compute average Bounce
+df_cleaned['average_BodyRock'] = df_cleaned[['BodyRockFrt', 'BodyRockRr']].mean(axis=1)
+
+# Step 2: Plot the boxplot of average_Bounce
+plt.figure(figsize=(8, 6))
+sns.boxplot(y='average_BodyRock', data=df_cleaned)
+plt.title('Boxplot of Average BodyRock')
+plt.ylabel('Average BodyRock')
+plt.show()
+
+# Step 3: Plot the histogram of average_Bounce
+plt.figure(figsize=(8, 6))
+plt.hist(df_cleaned['average_BodyRock'], bins=20, edgecolor='black')
+plt.title('Histogram of Average BodyRock')
+plt.xlabel('Average BodyRock')
+plt.ylabel('Frequency')
+plt.show()
+
+
+# Step 4: Add average_Bounce to currentdata
+currentdata['average_BodyRock'] = df_cleaned['average_BodyRock']
+
+# Step 5: Remove the original BounceFrt and BounceRr columns from currentdata
+columns_to_remove = ['BodyRockFrt', 'BodyRockRr']
+currentdata = currentdata.drop(columns=columns_to_remove)
+
+# Step 6: Display the updated DataFrame to confirm the changes
+print("Updated currentdata DataFrame with average_BodyRock added and BodyRockFrt, BodyRockRr removed:")
+print(currentdata.head())
+
+feature_labels = currentdata.columns
+print("Feature Labels (Column Titles) in currentdata:")
+print(feature_labels)
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Step 1: Compute average LP
+df_cleaned['average_VACC'] = df_cleaned[['VACC', 'VACC_L', 'VACC_R']].mean(axis=1)
+
+# Step 2: Plot the boxplot of average_LP
+plt.figure(figsize=(8, 6))
+sns.boxplot(y='average_VACC', data=df_cleaned)
+plt.title('Boxplot of VACC')
+plt.ylabel('Average VACC')
+plt.show()
+
+# Step 3: Plot the histogram of average_LP
+plt.figure(figsize=(8, 6))
+plt.hist(df_cleaned['average_VACC'], bins=20, edgecolor='black')
+plt.title('Histogram of Average VACC')
+plt.xlabel('Average VACC')
+plt.ylabel('Frequency')
+plt.show()
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy import stats
+
+# Create the 'average_acceleration' feature
+df_cleaned['average_VACC'] = df_cleaned[['VACC', 'VACC_L', 'VACC_R']].mean(axis=1)
+
+# Plot histogram of the original 'average_acceleration'
+fig, axes = plt.subplots(1, 5, figsize=(20, 6))
+axes = axes.flatten()
+
+axes[0].hist(df_cleaned['average_VACC'], bins=20, edgecolor='black')
+axes[0].set_title('Original')
+axes[0].set_xlabel('Value')
+axes[0].set_ylabel('Frequency')
+
+# Apply and plot the square root transformation
+df_cleaned['average_VACC_sqrt'] = np.sqrt(df_cleaned['average_VACC'])
+axes[1].hist(df_cleaned['average_VACC_sqrt'], bins=20, edgecolor='black')
+axes[1].set_title('Square Root')
+axes[1].set_xlabel('Value')
+axes[1].set_ylabel('Frequency')
+
+# Apply and plot the cube root transformation
+df_cleaned['average_VACC_cbrt'] = np.cbrt(df_cleaned['average_VACC'])
+axes[2].hist(df_cleaned['average_VACC_cbrt'], bins=20, edgecolor='black')
+axes[2].set_title('Cube Root')
+axes[2].set_xlabel('Value')
+axes[2].set_ylabel('Frequency')
+
+# Apply and plot the log transformation (add a small constant to avoid log(0))
+df_cleaned['average_VACC_log'] = np.log(df_cleaned['average_VACC'] + 1e-6)
+axes[3].hist(df_cleaned['average_VACC_log'], bins=20, edgecolor='black')
+axes[3].set_title('Logarithm')
+axes[3].set_xlabel('Value')
+axes[3].set_ylabel('Frequency')
+
+
+plt.tight_layout()
+plt.show()
+
+
+# Step 4: Add average_Bounce to currentdata
+currentdata['log_average_VACC'] = df_cleaned['average_VACC_log']
+
+# Step 5: Remove the original BounceFrt and BounceRr columns from currentdata
+columns_to_remove = ['VACC', 'VACC_L', 'VACC_R']
+currentdata = currentdata.drop(columns=columns_to_remove)
+
+# Step 6: Display the updated DataFrame to confirm the changes
+print("Updated currentdata DataFrame with log_average_VACC added and VACC, VACC_L, VACC_R removed:")
+print(currentdata.head())
+
+feature_labels = currentdata.columns
+print("Feature Labels (Column Titles) in currentdata:")
+print(feature_labels)
+
+df_result = spark.createDataFrame(pd.DataFrame(currentdata))
+display(df_result)
+
