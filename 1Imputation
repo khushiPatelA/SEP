@@ -1,0 +1,136 @@
+#BLOCK 1
+
+# import some libraries to use
+import numpy as np
+import pandas as pd
+import sklearn
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.impute import SimpleImputer
+from sklearn.feature_selection import VarianceThreshold
+from sklearn.feature_selection import f_classif
+
+
+#BLOCK 2
+'''
+    Construct a dataframe with the following database:
+    - trainingcontext: tc
+    - wagondata: w
+    - tonnagedata: t
+'''
+df_result=spark.sql("""
+                    select
+                        /*  trainingcontext features:  */
+                            tc.BaseCode,
+                            -- tc.SectionBreakStartKM, more specific details are in KMLocation
+                            -- tc.last_fail_if_available_otherwise_null, 
+                            -- tc.p_key, redundant
+                            -- tc.break_date,
+                            -- tc.r_date,
+                            -- rul contains the relationship between break_date and r_date
+                            tc.rul,
+                            -- tc.partition_col, redundant
+                        /*  Wagondata features:  */
+                            w.KMLocation,
+                            w.Twist14m,
+                            w.BounceFrt,
+                            w.BounceRr,
+                            w.BodyRockFrt,
+                            w.BodyRockRr,
+                            w.LP1,
+                            w.LP2,
+                            w.LP3,
+                            w.LP4,
+                            w.Speed,
+                            w.BrakeCylinder,
+                            w.IntrainForce,
+                            w.Acc1,
+                            w.Acc2,
+                            w.Acc3,
+                            w.Acc4,
+                            w.Twist2m,
+                            w.Acc1_RMS,
+                            w.Acc2_RMS,
+                            w.Acc3_RMS,
+                            w.Acc4_RMS,
+                            w.Rail_Pro_L,
+                            w.Rail_Pro_R,
+                            w.SND,
+                            w.VACC,
+                            w.VACC_L,
+                            w.VACC_R,
+                            w.Curvature,
+                            w.Track_Offset,
+                            w.ICWVehicle,
+                            -- w.FileLoadStatus, irrelevant
+                            -- w.RecordingDateTime, redundant
+                            -- w.RecordingDate, redundant
+                            w.SND_L,
+                            w.SND_R,
+                        /*  tonnagedata features: 
+                            - tonnage_per_day: calculate tonnage per day, limited to five decimal places  */
+                            --t.FromDate as FromDate,
+                            --t.ToDate as ToDate,
+                            t.Tonnage,
+                            -- round(t.Tonnage / datediff(to_date(t.ToDate, 'dd/mm/yyyy'), to_date(t.FromDate, 'dd/mm/yyyy')), 5) as tonnage_per_day,
+                        /*  trainingcontext target:  */
+                            tc.target
+                    from  predictive_maintenance.trainingcontext tc 
+                    inner join predictive_maintenance.wagondata w
+                        on concat(w.BaseCode, '_', w.SectionBreakStartKM, '_20m_', w.RecordingDate) = tc.p_key
+                    inner join predictive_maintenance.tonnagedata t
+                        on t.BaseCode = tc.BaseCode and t.SectionBreakStartKM = tc.SectionBreakStartKM
+                    /*  make sure that the r_date(trainingcontext) is in the range of FromDate(tonnagedata) and ToDate(tonnagedata)  */
+                    where tc.r_date between to_date(t.FromDate, 'dd/mm/yyyy') and to_date(t.ToDate, 'dd/mm/yyyy')
+""")
+'''
+    Print the type of the dataframe
+'''
+print(type(df_result))
+
+'''
+    Print the schema of the dataframe
+'''
+display(df_result)
+
+
+#BLOCK 3
+
+# transform to pandas dataframe
+pandas_df = df_result.toPandas()
+
+
+#BlOCK 4
+import pandas as pd
+
+# Assuming you have a DataFrame named pandas_df
+df_numeric = pandas_df.drop(['BaseCode', 'ICWVehicle'], axis=1)
+
+
+#BlOCK 5
+# display df_numeric data
+df_numeric
+
+#BLOCK 6
+'''
+    Imputation: median
+
+    Create df_imputed dataframe (imputed raw data, with target)
+'''
+imputer = SimpleImputer(strategy='median')
+imputed = imputer.fit_transform(df_numeric)
+df_imputed = pd.DataFrame(imputed, columns=df_numeric.columns)
+df_imputed
+
+
+#BLOCK 7
+# Histograms for df_imputed
+fig, axes = plt.subplots(nrows=6, ncols=6, figsize=(20, 15))
+axes = axes.flatten()
+for i, feature in enumerate(df_imputed.columns):
+    axes[i].hist(df_imputed[feature], bins=20, edgecolor='black')
+    axes[i].set_title(feature)
+    axes[i].set_xlabel('Value')
+    axes[i].set_ylabel('Frequency')
+plt.tight_layout()
+plt.show()
