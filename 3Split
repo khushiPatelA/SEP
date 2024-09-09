@@ -1,0 +1,21 @@
+#BLOCK 1
+%pip install imblearn
+
+#BLOCK 2
+%pip install imblearn
+
+#BLOCK 3
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from imblearn.over_sampling import ADASYN 
+from sklearn.metrics import f1_score
+
+#BLOCK 4
+## import your training data
+df = spark.sql("""select * from demo.mihir_training_table1""")
+pandas_df = df.toPandas()
+
+#BLOCK 5
+pandas_df
