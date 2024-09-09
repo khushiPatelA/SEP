@@ -1,0 +1,88 @@
+#BLOCK 1
+%pip install xgboost
+
+#BLOCK 2
+from xgboost import XGBClassifier
+from xgboost import plot_importance
+from sklearn.model_selection import GridSearchCV
+
+from sklearn.model_selection import train_test_split
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# Split the data into features and target
+X = pandas_df.drop(["target", "rul","KMLocation"], axis=1)  # Replace 'target' with the actual target column name
+y = pandas_df['target']  # Replace 'target' with the actual target column name
+
+# split the dataset
+split= int(len(X) * 0.8)  
+X_train, X_test = X[:split], X[split:]
+y_train, y_test = y[:split], y[split:]
+
+# Define the XGBoost model
+xgb_model = XGBClassifier(use_label_encoder=False, eval_metric='logloss')
+
+# Fit the model
+xgb_model.fit(X_train, y_train)
+
+# Compute Feature Importance based on 'Gain'
+gain_importance = xgb_model.get_booster().get_score(importance_type='gain')
+
+# Sort features by importance (highest gain first)
+sorted_features = sorted(gain_importance.items(), key=lambda x: x[1], reverse=True)
+
+# Extract the top 14 most important features
+top_14_features = [feature for feature, importance in sorted_features[:14]]
+
+# Create a new dataset with only the top 5 features
+X_top14 = X[top_14_features]
+
+split= int(len(X) * 0.8)  
+X_train_new, X_test_new = X_top14[:split], X_top14[split:]
+y_train_new, y_test_new = y[:split], y[split:]
+
+# Train the XGBoost model on the reduced dataset with top 14 features
+xgb_model_top14 = XGBClassifier(use_label_encoder=False, eval_metric='logloss')
+xgb_model_top14.fit(X_train_new, y_train_new)
+
+
+#BLOCK 3
+# Feature importance based on 'Gain'
+print("Feature Importance by Gain:")
+gain_importance = xgb_model.get_booster().get_score(importance_type='gain')
+sorted_gain = sorted(gain_importance.items(), key=lambda x: x[1], reverse=True)
+print(sorted_gain)
+
+# Plot feature importance by 'Gain'
+plt.figure(figsize=(10, 8))
+plot_importance(xgb_model, importance_type='gain')
+plt.title('Feature Importance by Gain')
+plt.show()
+
+# Feature importance based on 'Weight'
+print("Feature Importance by Weight:")
+cover_importance = xgb_model.get_booster().get_score(importance_type='cover')
+sorted_weight = sorted(cover_importance.items(), key=lambda x: x[1], reverse=True)
+print(sorted_weight)
+
+# Feature importance based on 'Cover'
+print("Feature Importance by Cover:")
+cover_importance = xgb_model.get_booster().get_score(importance_type='cover')
+sorted_cover = sorted(cover_importance.items(), key=lambda x: x[1], reverse=True)
+print(sorted_cover)
+
+# Plot feature importance by 'Cover'
+plt.figure(figsize=(10, 8))
+plot_importance(xgb_model, importance_type='cover')
+plt.title('Feature Importance by Cover')
+plt.show()
+
+
+#BLOCK 4
+from sklearn.metrics import f1_score
+# Make predictions on the test set
+y_pred = xgb_model_top14.predict(X_test_new)
+
+# Evaluate the classifier
+f1 = f1_score(y_test_new, y_pred)
+print(f'f1: {f1:.2f}')
